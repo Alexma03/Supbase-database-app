@@ -7,17 +7,85 @@ import {
   RefreshControl,
   ActivityIndicator,
   TouchableOpacity,
+  Modal,
+  Pressable,
+  Alert
 } from 'react-native';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import type { EmailSubmission } from '@/types/supabase';
 import { useRouter } from 'expo-router';
+import { Trash2, CheckCircle, XCircle } from 'lucide-react-native';
 
 const PAGE_SIZE = 20;
 
 export default function SubmissionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedMessageStatus, setSelectedMessageStatus] = useState<'read' | 'unread'>('unread');
+
+  // Mutation para marcar el mensaje como leído
+  const { mutate: markAsRead } = useMutation({
+    mutationFn: async (messageId: string) => {
+      const { error } = await supabase
+        .from('email_submissions')
+        .update({ status: 'read' })
+        .eq('id', messageId);
+      
+      if (error) {
+        console.error('Error marking message as read:', error);
+        throw error;
+      }
+      return true;
+    },
+    onSuccess: () => {
+      // Invalidar la consulta para actualizar la lista de mensajes
+      queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
+    }
+  });
+  
+  // Mutation para marcar el mensaje como no leído
+  const { mutate: markAsUnread } = useMutation({
+    mutationFn: async (messageId: string) => {
+      const { error } = await supabase
+        .from('email_submissions')
+        .update({ status: 'unread' })
+        .eq('id', messageId);
+      
+      if (error) {
+        console.error('Error marking message as unread:', error);
+        throw error;
+      }
+      return true;
+    },
+    onSuccess: () => {
+      // Invalidar la consulta para actualizar la lista de mensajes
+      queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
+    }
+  });
+  
+  // Mutation para eliminar el mensaje
+  const { mutate: deleteMessage } = useMutation({
+    mutationFn: async (messageId: string) => {
+      const { error } = await supabase
+        .from('email_submissions')
+        .delete()
+        .eq('id', messageId);
+      
+      if (error) {
+        console.error('Error deleting message:', error);
+        throw error;
+      }
+      return true;
+    },
+    onSuccess: () => {
+      // Invalidar la consulta para actualizar la lista de mensajes
+      queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
+    }
+  });
 
   const {
     data,
@@ -60,6 +128,46 @@ export default function SubmissionsScreen() {
     }
   };
 
+  const handleLongPress = (message: EmailSubmission) => {
+    setSelectedMessageId(message.id);
+    setSelectedMessageStatus(message.status);
+    setModalVisible(true);
+  };
+  
+  const handleToggleReadStatus = () => {
+    if (!selectedMessageId) return;
+    
+    if (selectedMessageStatus === 'read') {
+      markAsUnread(selectedMessageId);
+    } else {
+      markAsRead(selectedMessageId);
+    }
+    
+    setModalVisible(false);
+  };
+  
+  const handleDelete = () => {
+    setModalVisible(false);
+    
+    if (!selectedMessageId) return;
+    
+    Alert.alert(
+      "Confirmar eliminación",
+      "¿Estás seguro que deseas eliminar este mensaje? Esta acción no se puede deshacer.",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel"
+        },
+        { 
+          text: "Eliminar", 
+          onPress: () => selectedMessageId && deleteMessage(selectedMessageId),
+          style: "destructive"
+        }
+      ]
+    );
+  };
+
   if (isLoading) {
     return (
       <View style={styles.centered}>
@@ -88,7 +196,11 @@ export default function SubmissionsScreen() {
   }
 
   const renderItem = ({ item }: { item: EmailSubmission }) => (
-    <TouchableOpacity onPress={() => router.push(`/message/${item.id}`)}>
+    <TouchableOpacity 
+      onPress={() => router.push(`/message/${item.id}`)}
+      onLongPress={() => handleLongPress(item)}
+      delayLongPress={300}
+    >
       <View style={styles.card}>
         <Text style={styles.subject}>{item.subject}</Text>
         <Text style={styles.email}>{item.email}</Text>
@@ -105,22 +217,64 @@ export default function SubmissionsScreen() {
   );
 
   return (
-    <FlatList<EmailSubmission>
-      data={allSubmissions}
-      renderItem={renderItem}
-      keyExtractor={(item) => item.id}
-      contentContainerStyle={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-      onEndReached={loadMore}
-      onEndReachedThreshold={0.5}
-      ListFooterComponent={
-        isFetchingNextPage ? (
-          <ActivityIndicator style={styles.footer} color="#007AFF" />
-        ) : null
-      }
-    />
+    <>
+      <FlatList<EmailSubmission>
+        data={allSubmissions}
+        renderItem={renderItem}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <ActivityIndicator style={styles.footer} color="#007AFF" />
+          ) : null
+        }
+      />
+      
+      {/* Modal de menú contextual */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <Pressable 
+          style={styles.modalOverlay}
+          onPress={() => setModalVisible(false)}
+        >
+          <View style={styles.modalContent}>
+            <TouchableOpacity 
+              style={styles.modalOption}
+              onPress={handleToggleReadStatus}
+            >
+              {selectedMessageStatus === 'read' ? (
+                <>
+                  <XCircle size={22} color="#007AFF" style={styles.modalIcon} />
+                  <Text style={styles.modalOptionText}>Marcar como no leído</Text>
+                </>
+              ) : (
+                <>
+                  <CheckCircle size={22} color="#007AFF" style={styles.modalIcon} />
+                  <Text style={styles.modalOptionText}>Marcar como leído</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.modalOption, styles.deleteOption]}
+              onPress={handleDelete}
+            >
+              <Trash2 size={22} color="#FF3B30" style={styles.modalIcon} />
+              <Text style={styles.deleteText}>Eliminar mensaje</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -203,4 +357,47 @@ const styles = StyleSheet.create({
   footer: {
     paddingVertical: 16,
   },
+  // Estilos del modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 14,
+    padding: 8,
+    width: '80%',
+    maxWidth: 350,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 8
+  },
+  modalIcon: {
+    marginRight: 12
+  },
+  modalOptionText: {
+    fontSize: 16,
+    color: '#333'
+  },
+  deleteOption: {
+    borderTopWidth: 1,
+    borderTopColor: '#F2F2F2'
+  },
+  deleteText: {
+    fontSize: 16,
+    color: '#FF3B30'
+  }
 });
