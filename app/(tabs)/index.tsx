@@ -6,7 +6,7 @@ import {
   FlatList,
   RefreshControl,
   ActivityIndicator,
-  TouchableOpacity, // Add this import
+  TouchableOpacity,
 } from 'react-native';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -30,17 +30,20 @@ export default function SubmissionsScreen() {
     refetch,
   } = useInfiniteQuery({
     queryKey: ['email-submissions'],
-    queryFn: async ({ pageParam = 0 }) => {
+    queryFn: async ({ pageParam }) => {
+      const page = pageParam as number;
       const { data, error } = await supabase
         .from('email_submissions')
         .select('*')
         .order('created_at', { ascending: false })
-        .range(pageParam * PAGE_SIZE, (pageParam + 1) * PAGE_SIZE - 1);
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
       if (error) throw error;
-      return data as EmailSubmission[];
+      // Use double assertion to safely convert types
+      return (data as unknown) as EmailSubmission[];
     },
-    getNextPageParam: (lastPage, allPages) => {
+    initialPageParam: 0,
+    getNextPageParam: (lastPage: EmailSubmission[], allPages) => {
       return lastPage.length === PAGE_SIZE ? allPages.length : undefined;
     },
   });
@@ -68,12 +71,13 @@ export default function SubmissionsScreen() {
   if (isError) {
     return (
       <View style={styles.centered}>
-        <Text style={styles.errorText}>Error: {error.message}</Text>
+        <Text style={styles.errorText}>Error: {(error as Error).message}</Text>
       </View>
     );
   }
 
-  const allSubmissions = data?.pages.flat() ?? [];
+  // Use double assertion to ensure type safety
+  const allSubmissions = (data?.pages.flat() ?? []) as unknown as EmailSubmission[];
 
   if (allSubmissions.length === 0) {
     return (
@@ -92,7 +96,7 @@ export default function SubmissionsScreen() {
           <Text style={styles.date}>
             {new Date(item.created_at).toLocaleDateString()}
           </Text>
-          <Text style={[styles.status, styles[item.status]]}>
+          <Text style={[styles.status, item.status === 'read' ? styles.read : styles.unread]}>
             {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
           </Text>
         </View>
@@ -101,7 +105,7 @@ export default function SubmissionsScreen() {
   );
 
   return (
-    <FlatList
+    <FlatList<EmailSubmission>
       data={allSubmissions}
       renderItem={renderItem}
       keyExtractor={(item) => item.id}
@@ -140,6 +144,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  subject: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
   email: {
     fontSize: 16,
     fontWeight: '600',
@@ -160,6 +169,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
+  },
+  read: {
+    backgroundColor: '#D4EDDA',
+    color: '#155724',
+  },
+  unread: {
+    backgroundColor: '#FFF3CD',
+    color: '#856404',
   },
   pending: {
     backgroundColor: '#FFF3CD',

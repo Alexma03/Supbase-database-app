@@ -3,13 +3,13 @@ import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Linking } 
 import { supabase } from '@/lib/supabase';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
-import { MessageCircle } from 'lucide-react-native';  // Add this import
+import { MessageCircle } from 'lucide-react-native';
+import type { EmailSubmission } from '@/types/supabase';
 
 export default function MessageDetail() {
-  const { id } = useLocalSearchParams();
-  const navigation = useNavigation();  // Moved to top level
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const navigation = useNavigation();
   
-  // Add useEffect for navigation options
   useEffect(() => {
     navigation.setOptions({ 
       title: 'Detalle del Mensaje',
@@ -28,10 +28,13 @@ export default function MessageDetail() {
     queryFn: async () => {
       try {
         console.log('Fetching message with ID:', id);
+        // Using string cast to avoid type errors with Supabase query
+        const stringId = String(id);
         const { data, error } = await supabase
           .from('email_submissions')
           .select('*')
-          .eq('id', id)
+          // Using type assertion through unknown first
+          .eq('id', stringId as unknown as any)
           .single();
         
         if (error) {
@@ -40,13 +43,14 @@ export default function MessageDetail() {
         }
         
         console.log('Message data received:', data);
-        return data;
+        // Double type assertion to safely convert to our type
+        return (data as unknown) as EmailSubmission;
       } catch (err) {
         console.error('Error in queryFn:', err);
         throw err;
       }
     },
-    enabled: !!id, // Solo ejecutar la consulta si hay un ID
+    enabled: !!id,
   });
 
   if (isLoading) {
@@ -60,7 +64,7 @@ export default function MessageDetail() {
   if (isError) {
     return (
       <View style={[styles.container, styles.centered]}>
-        <Text style={styles.errorText}>Error: {error.message}</Text>
+        <Text style={styles.errorText}>Error: {(error as Error).message}</Text>
       </View>
     );
   }
@@ -73,7 +77,8 @@ export default function MessageDetail() {
     );
   }
 
-  // Formatear la fecha solo si message existe
+  // Since we've already type-asserted in the query function, 
+  // we can safely use EmailSubmission properties
   const formattedDate = message.created_at 
     ? new Date(message.created_at).toLocaleDateString() 
     : '';
@@ -103,6 +108,10 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
     backgroundColor: 'white',
     flex: 1 
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   subject: { 
     fontSize: 24,
