@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -8,13 +8,16 @@ import {
   Linking,
   Modal,
   Alert,
-  Pressable
+  Pressable,
+  Animated,
+  Easing
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { MessageCircle, AlertCircle, Trash2, CheckCircle, XCircle } from 'lucide-react-native';
 import type { EmailSubmission } from '@/types/supabase';
+import { deleteEmailSubmission, updateEmailSubmissionStatus } from '@/lib/services';
 
 export default function MessageDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -23,6 +26,48 @@ export default function MessageDetail() {
   const queryClient = useQueryClient();
   const [modalVisible, setModalVisible] = useState(false);
   
+  // Animation values
+  const pressAnimation = useRef(new Animated.Value(0)).current;
+  const contentOpacity = useRef(new Animated.Value(0)).current;
+  const contentTranslateY = useRef(new Animated.Value(20)).current;
+  
+  // Run entrance animation when component mounts
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(contentOpacity, {
+        toValue: 1,
+        duration: 400,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(contentTranslateY, {
+        toValue: 0,
+        duration: 400,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      })
+    ]).start();
+  }, []);
+  
+  // Handle press animation
+  const handlePressIn = () => {
+    Animated.timing(pressAnimation, {
+      toValue: 1,
+      duration: 250, // Slower animation
+      easing: Easing.bezier(0.2, 0.8, 0.2, 1), // Smooth bezier curve
+      useNativeDriver: false, // We need to animate backgroundColor
+    }).start();
+  };
+  
+  const handlePressOut = () => {
+    Animated.timing(pressAnimation, {
+      toValue: 0,
+      duration: 300, // Even slower release
+      easing: Easing.bezier(0.4, 0, 0.2, 1), // Smooth return
+      useNativeDriver: false,
+    }).start();
+  };
+
   useEffect(() => {
     navigation.setOptions({ 
       title: 'Detalle del Mensaje',
@@ -39,16 +84,7 @@ export default function MessageDetail() {
   // Mutation para marcar el mensaje como leído
   const { mutate: markAsRead } = useMutation({
     mutationFn: async (messageId: string) => {
-      const { error } = await supabase
-        .from('email_submissions')
-        .update({ status: 'read' })
-        .eq('id', messageId);
-      
-      if (error) {
-        console.error('Error marking message as read:', error);
-        throw error;
-      }
-      return true;
+      return await updateEmailSubmissionStatus(messageId, 'read');
     },
     onSuccess: () => {
       // Invalidar la consulta para actualizar la lista de mensajes
@@ -66,16 +102,7 @@ export default function MessageDetail() {
   // Mutation para marcar el mensaje como no leído
   const { mutate: markAsUnread } = useMutation({
     mutationFn: async (messageId: string) => {
-      const { error } = await supabase
-        .from('email_submissions')
-        .update({ status: 'unread' })
-        .eq('id', messageId);
-      
-      if (error) {
-        console.error('Error marking message as unread:', error);
-        throw error;
-      }
-      return true;
+      return await updateEmailSubmissionStatus(messageId, 'unread');
     },
     onSuccess: () => {
       // Invalidar la consulta para actualizar la lista de mensajes
@@ -93,16 +120,7 @@ export default function MessageDetail() {
   // Mutation para eliminar el mensaje
   const { mutate: deleteMessage } = useMutation({
     mutationFn: async (messageId: string) => {
-      const { error } = await supabase
-        .from('email_submissions')
-        .delete()
-        .eq('id', messageId);
-      
-      if (error) {
-        console.error('Error deleting message:', error);
-        throw error;
-      }
-      return true;
+      return await deleteEmailSubmission(messageId);
     },
     onSuccess: () => {
       // Invalidar la consulta para actualizar la lista de mensajes
@@ -215,22 +233,57 @@ export default function MessageDetail() {
   const formattedDate = message.created_at 
     ? new Date(message.created_at).toLocaleDateString() 
     : '';
+    
+  // Interpolated animation values
+  const scale = pressAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 0.99],
+  });
+  
+  const backgroundColor = pressAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#ffffff', '#f9f9f9'],
+  });
 
   return (
     <View style={styles.container}>
-      <Pressable 
-        style={styles.contentContainer} 
-        onLongPress={() => setModalVisible(true)}
-        delayLongPress={300}
+      <Animated.View 
+        style={[
+          styles.contentWrapper,
+          {
+            opacity: contentOpacity,
+            transform: [
+              { translateY: contentTranslateY },
+            ],
+          }
+        ]}
       >
-        <Text style={styles.subject}>{message.subject}</Text>
-        <Text style={styles.email}>{message.email}</Text>
-        <Text style={styles.date}>{formattedDate}</Text>
-        <Text style={styles.message}>{message.message}</Text>
-      </Pressable>
+        <Pressable 
+          onLongPress={() => setModalVisible(true)}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          delayLongPress={300}
+          style={({ pressed }) => [
+            styles.messageContent,
+            { backgroundColor: pressed ? '#f9f9f9' : 'white' }
+          ]}
+        >
+          <Animated.View style={{
+            transform: [{ scale }],
+            backgroundColor,
+            flex: 1,
+          }}>
+            <Text style={styles.subject}>{message.subject}</Text>
+            <Text style={styles.email}>{message.email}</Text>
+            <Text style={styles.date}>{formattedDate}</Text>
+            <Text style={styles.message}>{message.message}</Text>
+          </Animated.View>
+        </Pressable>
+      </Animated.View>
       
       <TouchableOpacity 
         style={styles.button}
+        activeOpacity={0.85} // Even more subtle opacity effect
         onPress={() => {
           Linking.openURL(`mailto:${message.email}?subject=Respuesta: ${message.subject}`);
         }}
@@ -283,22 +336,22 @@ export default function MessageDetail() {
 
 const styles = StyleSheet.create({
   container: { 
-    padding: 24,
+    padding: 20,
     paddingBottom: 80,
     backgroundColor: 'white',
     flex: 1 
   },
-  contentContainer: {
-    flex: 1
+  contentWrapper: {
+    flex: 1,
   },
-  centered: {
-    justifyContent: 'center',
-    alignItems: 'center',
+  messageContent: {
+    flex: 1,
+    paddingVertical: 10,
   },
   subject: { 
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: '600',
-    marginBottom: 12
+    marginBottom: 14
   },
   email: { 
     fontSize: 18,
@@ -308,24 +361,33 @@ const styles = StyleSheet.create({
   date: { 
     fontSize: 16,
     color: '#999',
-    marginBottom: 24
+    marginBottom: 30
   },
   message: { 
     fontSize: 18,
     lineHeight: 28,
-    marginBottom: 100
   },
   button: {
-    marginTop: 'auto',
+    marginTop: 25,
     padding: 16,
     borderRadius: 12,
     backgroundColor: '#007AFF',
-    width: '100%'
+    width: '100%',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   buttonText: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: '600'
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   errorTitle: {
     fontSize: 22,

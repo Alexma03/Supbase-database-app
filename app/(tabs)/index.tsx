@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,9 @@ import {
   TouchableOpacity,
   Modal,
   Pressable,
-  Alert
+  Alert,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
@@ -19,6 +21,9 @@ import { Trash2, CheckCircle, XCircle } from 'lucide-react-native';
 
 const PAGE_SIZE = 20;
 
+// Animation constants
+const ANIMATION_DURATION = 250; // Slower animation (250ms)
+
 export default function SubmissionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const router = useRouter();
@@ -26,6 +31,91 @@ export default function SubmissionsScreen() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedMessageStatus, setSelectedMessageStatus] = useState<'read' | 'unread'>('unread');
+  const [pressedId, setPressedId] = useState<string | null>(null);
+  
+  // Animation values map
+  const animatedValues = useRef(new Map()).current;
+  // Store navigation timeouts to be able to cancel them
+  const navigationTimeouts = useRef(new Map()).current;
+  
+  // Clean up animations when component unmounts
+  useEffect(() => {
+    return () => {
+      // Clear all navigation timeouts
+      navigationTimeouts.forEach((timeout) => clearTimeout(timeout));
+      navigationTimeouts.clear();
+      
+      // Reset all animations
+      animatedValues.forEach((value) => {
+        value.setValue(0);
+      });
+    };
+  }, []);
+  
+  // Get or create animated value for an item
+  const getAnimatedValue = (id: string) => {
+    if (!animatedValues.has(id)) {
+      animatedValues.set(id, new Animated.Value(0));
+    }
+    return animatedValues.get(id);
+  };
+
+  // Start animation for pressed card
+  const animatePress = (id: string, pressed: boolean) => {
+    // Clear any existing timeout for this id
+    if (navigationTimeouts.has(id)) {
+      clearTimeout(navigationTimeouts.get(id));
+      navigationTimeouts.delete(id);
+    }
+    
+    const toValue = pressed ? 1 : 0;
+    Animated.timing(getAnimatedValue(id), {
+      toValue,
+      duration: pressed ? ANIMATION_DURATION : ANIMATION_DURATION * 1.2, // Slower release
+      easing: pressed ? Easing.bezier(0.2, 0.8, 0.2, 1) : Easing.bezier(0.33, 0, 0.66, 1),
+      useNativeDriver: false,
+    }).start();
+    
+    setPressedId(pressed ? id : null);
+  };
+
+  // Handle actual navigation with delay for visual feedback
+  const handleCardPress = (id: string) => {
+    animatePress(id, true);
+    
+    // Delay navigation slightly to see the animation
+    const timeout = setTimeout(() => {
+      // Reset animation before navigating
+      animatePress(id, false);
+      
+      // Small additional delay before actual navigation
+      setTimeout(() => {
+        router.push(`/message/${id}`);
+      }, 50);
+      
+      // Clean up the timeout reference
+      if (navigationTimeouts.has(id)) {
+        navigationTimeouts.delete(id);
+      }
+    }, ANIMATION_DURATION * 0.5);
+    
+    // Store timeout reference
+    navigationTimeouts.set(id, timeout);
+  };
+
+  // Cancel navigation and reset animation if press is released
+  const handlePressOut = (id: string) => {
+    if (pressedId !== id) return;
+    
+    // Check if we have a pending navigation
+    if (navigationTimeouts.has(id)) {
+      clearTimeout(navigationTimeouts.get(id));
+      navigationTimeouts.delete(id);
+    }
+    
+    // Reset the animation
+    animatePress(id, false);
+  };
 
   // Mutation para marcar el mensaje como leído
   const { mutate: markAsRead } = useMutation({
@@ -195,26 +285,63 @@ export default function SubmissionsScreen() {
     );
   }
 
-  const renderItem = ({ item }: { item: EmailSubmission }) => (
-    <TouchableOpacity 
-      onPress={() => router.push(`/message/${item.id}`)}
-      onLongPress={() => handleLongPress(item)}
-      delayLongPress={300}
-    >
-      <View style={styles.card}>
-        <Text style={styles.subject}>{item.subject}</Text>
-        <Text style={styles.email}>{item.email}</Text>
-        <View style={styles.details}>
-          <Text style={styles.date}>
-            {new Date(item.created_at).toLocaleDateString()}
-          </Text>
-          <Text style={[styles.status, item.status === 'read' ? styles.read : styles.unread]}>
-            {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-          </Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+  const renderItem = ({ item }: { item: EmailSubmission }) => {
+    const animatedValue = getAnimatedValue(item.id);
+    
+    // Interpolate animation values
+    const scale = animatedValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 0.96], // Slightly more subtle scale effect
+    });
+    
+    const backgroundColor = animatedValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['#ffffff', '#f0f2f5'], // More subtle background color change
+    });
+    
+    const elevation = animatedValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: [3, 1], // Reduced elevation when pressed
+    });
+    
+    return (
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={() => handleCardPress(item.id)}
+        onLongPress={() => handleLongPress(item)}
+        onPressIn={() => animatePress(item.id, true)}
+        onPressOut={() => handlePressOut(item.id)}
+        delayLongPress={300}
+        style={styles.cardContainer}
+      >
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              transform: [{ scale }],
+              backgroundColor,
+              elevation,
+              shadowOpacity: elevation.interpolate({
+                inputRange: [1, 3],
+                outputRange: [0.05, 0.1],
+              }),
+            },
+          ]}
+        >
+          <Text style={styles.subject}>{item.subject}</Text>
+          <Text style={styles.email}>{item.email}</Text>
+          <View style={styles.details}>
+            <Text style={styles.date}>
+              {new Date(item.created_at).toLocaleDateString()}
+            </Text>
+            <Text style={[styles.status, item.status === 'read' ? styles.read : styles.unread]}>
+              {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
+            </Text>
+          </View>
+        </Animated.View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <>
@@ -287,11 +414,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  cardContainer: {
+    marginBottom: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   card: {
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 12,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
