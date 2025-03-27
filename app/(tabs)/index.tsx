@@ -12,18 +12,148 @@ import {
   Alert,
   Animated,
   Easing,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import type { EmailSubmission } from '@/types/supabase';
 import { useRouter } from 'expo-router';
-import { Trash2, CheckCircle, XCircle } from 'lucide-react-native';
+import { Trash2, CheckCircle, XCircle, Search, ChevronDown } from 'lucide-react-native';
 import { deleteEmailSubmission } from '@/lib/services';
 
 const PAGE_SIZE = 20;
+const DEBOUNCE_TIME = 500; // 500ms antes de realizar la búsqueda
 
 // Animation constants
 const ANIMATION_DURATION = 250; // Slower animation (250ms)
+
+// Definir interfaz para las props del SearchBar
+interface SearchBarProps {
+  searchText: string;
+  setSearchText: (text: string) => void;
+  searchParam: string;
+  setSearchParam: (param: string) => void;
+  isSearching: boolean;
+  setIsSearching: (isSearching: boolean) => void;
+}
+
+// Componente separado para la barra de búsqueda
+function SearchBar({ 
+  searchText, 
+  setSearchText, 
+  searchParam, 
+  setSearchParam, 
+  isSearching, 
+  setIsSearching 
+}: SearchBarProps) {
+  const [localSearchText, setLocalSearchText] = useState(searchText);
+  const [showSearchParams, setShowSearchParams] = useState(false);
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null);
+  const inputRef = useRef<TextInput | null>(null);
+  
+  // Lista de parámetros de búsqueda disponibles
+  const searchParams = [
+    { label: 'Asunto', value: 'subject' },
+    { label: 'Email', value: 'email' },
+    { label: 'Nombre', value: 'name' },
+    { label: 'Mensaje', value: 'message' }
+  ];
+  
+  // Obtener etiqueta del parámetro actual
+  const getSearchParamLabel = () => {
+    return searchParams.find(param => param.value === searchParam)?.label || 'Asunto';
+  };
+  
+  // Aplicar debounce a la búsqueda
+  useEffect(() => {
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
+    }
+    
+    searchTimeout.current = setTimeout(() => {
+      setSearchText(localSearchText);
+      setIsSearching(!!localSearchText);
+    }, DEBOUNCE_TIME);
+    
+    return () => {
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current);
+      }
+    };
+  }, [localSearchText]);
+  
+  // Función para limpiar la búsqueda
+  const handleClearSearch = () => {
+    setLocalSearchText('');
+    setSearchText('');
+    setIsSearching(false);
+    // Enfocar el input nuevamente
+    inputRef.current?.focus();
+  };
+  
+  return (
+    <View style={styles.searchContainer}>
+      <View style={styles.searchInputContainer}>
+        <Search size={20} color="#999" style={styles.searchIcon} />
+        <TextInput
+          ref={inputRef}
+          style={styles.searchInput}
+          placeholder={`Buscar por ${getSearchParamLabel().toLowerCase()}...`}
+          value={localSearchText}
+          onChangeText={setLocalSearchText}
+          returnKeyType="search"
+          clearButtonMode="never" // Usaremos nuestro propio botón de limpiar
+        />
+        {localSearchText.length > 0 && (
+          <TouchableOpacity onPress={handleClearSearch} style={styles.clearButton}>
+            <Text style={styles.clearButtonText}>×</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      
+      <TouchableOpacity 
+        style={styles.paramSelector}
+        onPress={() => {
+          setShowSearchParams(!showSearchParams); 
+          Keyboard.dismiss();
+        }}
+      >
+        <Text style={styles.paramSelectorText}>{getSearchParamLabel()}</Text>
+        <ChevronDown size={16} color="#007AFF" />
+      </TouchableOpacity>
+      
+      {showSearchParams && (
+        <View style={styles.paramDropdown}>
+          {searchParams.map((param) => (
+            <TouchableOpacity
+              key={param.value}
+              style={[
+                styles.paramOption,
+                param.value === searchParam && styles.paramOptionSelected
+              ]}
+              onPress={() => {
+                setSearchParam(param.value);
+                setShowSearchParams(false);
+                // Enfocar el input después de seleccionar un parámetro
+                setTimeout(() => inputRef.current?.focus(), 100);
+              }}
+            >
+              <Text 
+                style={[
+                  styles.paramOptionText,
+                  param.value === searchParam && styles.paramOptionTextSelected
+                ]}
+              >
+                {param.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
 
 export default function SubmissionsScreen() {
   const [refreshing, setRefreshing] = useState(false);
@@ -33,6 +163,9 @@ export default function SubmissionsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedMessageStatus, setSelectedMessageStatus] = useState<'read' | 'unread'>('unread');
   const [pressedId, setPressedId] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [searchParam, setSearchParam] = useState('subject');
+  const [isSearching, setIsSearching] = useState(false);
   
   // Animation values map
   const animatedValues = useRef(new Map()).current;
@@ -157,17 +290,25 @@ export default function SubmissionsScreen() {
     error,
     refetch,
   } = useInfiniteQuery({
-    queryKey: ['email-submissions'],
+    queryKey: ['email-submissions', searchParam, searchText],
     queryFn: async ({ pageParam }) => {
       const page = pageParam as number;
-      const { data, error } = await supabase
+      
+      // Crear la consulta base
+      let query = supabase
         .from('email_submissions')
         .select('*')
-        .order('created_at', { ascending: false })
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+        .order('created_at', { ascending: false });
+      
+      // Aplicar filtro de búsqueda si hay texto
+      if (searchText) {
+        query = query.ilike(searchParam, `%${searchText}%`);
+      }
+      
+      // Aplicar paginación
+      const { data, error } = await query.range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
       if (error) throw error;
-      // Use double assertion to safely convert types
       return (data as unknown) as EmailSubmission[];
     },
     initialPageParam: 0,
@@ -226,50 +367,23 @@ export default function SubmissionsScreen() {
     );
   };
 
-  if (isLoading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
-  }
-
-  if (isError) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>Error: {(error as Error).message}</Text>
-      </View>
-    );
-  }
-
-  // Use double assertion to ensure type safety
-  const allSubmissions = (data?.pages.flat() ?? []) as unknown as EmailSubmission[];
-
-  if (allSubmissions.length === 0) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.emptyText}>No submissions yet</Text>
-      </View>
-    );
-  }
-
   const renderItem = ({ item }: { item: EmailSubmission }) => {
     const animatedValue = getAnimatedValue(item.id);
     
     // Interpolate animation values
     const scale = animatedValue.interpolate({
       inputRange: [0, 1],
-      outputRange: [1, 0.96], // Slightly more subtle scale effect
+      outputRange: [1, 0.96],
     });
     
     const backgroundColor = animatedValue.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#ffffff', '#f0f2f5'], // More subtle background color change
+      outputRange: ['#ffffff', '#f0f2f5'],
     });
     
     const elevation = animatedValue.interpolate({
       inputRange: [0, 1],
-      outputRange: [3, 1], // Reduced elevation when pressed
+      outputRange: [3, 1],
     });
     
     return (
@@ -312,23 +426,52 @@ export default function SubmissionsScreen() {
   };
 
   return (
-    <>
-      <FlatList<EmailSubmission>
-        data={allSubmissions}
-        renderItem={renderItem}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.container}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.5}
-        ListFooterComponent={
-          isFetchingNextPage ? (
-            <ActivityIndicator style={styles.footer} color="#007AFF" />
-          ) : null
-        }
+    <View style={styles.mainContainer}>
+      {/* Barra de búsqueda separada */}
+      <SearchBar
+        searchText={searchText}
+        setSearchText={setSearchText}
+        searchParam={searchParam}
+        setSearchParam={setSearchParam}
+        isSearching={isSearching}
+        setIsSearching={setIsSearching}
       />
+      
+      {/* Contenedor para el contenido principal (siempre presente) */}
+      <View style={styles.contentContainer}>
+        {isLoading ? (
+          <View style={styles.centered}>
+            <ActivityIndicator size="large" color="#007AFF" />
+          </View>
+        ) : isError ? (
+          <View style={styles.centered}>
+            <Text style={styles.errorText}>Error: {(error as Error).message}</Text>
+          </View>
+        ) : (data?.pages.flat() ?? []).length === 0 ? (
+          <View style={styles.centered}>
+            <Text style={styles.emptyText}>
+              {isSearching ? 'No se encontraron resultados' : 'No hay mensajes'}
+            </Text>
+          </View>
+        ) : (
+          <FlatList<EmailSubmission>
+            data={(data?.pages.flat() ?? []) as unknown as EmailSubmission[]}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.container}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <ActivityIndicator style={styles.footer} color="#007AFF" />
+              ) : null
+            }
+          />
+        )}
+      </View>
       
       {/* Modal de menú contextual */}
       <Modal
@@ -369,11 +512,18 @@ export default function SubmissionsScreen() {
           </View>
         </Pressable>
       </Modal>
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  mainContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  contentContainer: {
+    flex: 1,
+  },
   container: {
     padding: 16,
   },
@@ -498,5 +648,92 @@ const styles = StyleSheet.create({
   deleteText: {
     fontSize: 16,
     color: '#FF3B30'
-  }
+  },
+  // Estilos de búsqueda
+  searchContainer: {
+    padding: 10,
+    paddingBottom: 6,
+    backgroundColor: '#fff',
+    position: 'relative',
+    zIndex: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingLeft: 10,
+    paddingRight: 8,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#333',
+    height: 26,
+    padding: 0,
+  },
+  clearButton: {
+    padding: 3,
+  },
+  clearButtonText: {
+    color: '#999',
+    fontSize: 20,
+    fontWeight: 'bold',
+    lineHeight: 20,
+  },
+  paramSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 5,
+    padding: 4,
+  },
+  paramSelectorText: {
+    fontSize: 13,
+    color: '#007AFF',
+    marginRight: 3,
+  },
+  paramDropdown: {
+    position: 'absolute',
+    top: 75, // Ajustar según la nueva altura reducida
+    left: 10,
+    right: 10,
+    backgroundColor: 'white',
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 100,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  paramOption: {
+    padding: 10, // Reducido de 12
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  paramOptionSelected: {
+    backgroundColor: '#f0f8ff',
+  },
+  paramOptionText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  paramOptionTextSelected: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
 });
