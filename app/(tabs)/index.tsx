@@ -18,6 +18,7 @@ import { supabase } from '@/lib/supabase';
 import type { EmailSubmission } from '@/types/supabase';
 import { useRouter } from 'expo-router';
 import { Trash2, CheckCircle, XCircle } from 'lucide-react-native';
+import { deleteEmailSubmission } from '@/lib/services';
 
 const PAGE_SIZE = 20;
 
@@ -117,59 +118,28 @@ export default function SubmissionsScreen() {
     animatePress(id, false);
   };
 
-  // Mutation para marcar el mensaje como leído
-  const { mutate: markAsRead } = useMutation({
-    mutationFn: async (messageId: string) => {
-      const { error } = await supabase
-        .from('email_submissions')
-        .update({ status: 'read' })
-        .eq('id', messageId);
-      
+  // Nueva mutación para actualizar el estatus usando la función RPC
+  const { mutate: updateStatus } = useMutation({
+    mutationFn: async ({ messageId, newStatus }: { messageId: string; newStatus: string }) => {
+      const { data, error } = await supabase.rpc('update_email_submission_status', {
+        new_status: newStatus,
+        submission_id: messageId,
+      });
       if (error) {
-        console.error('Error marking message as read:', error);
+        console.error("Error updating status:", error);
         throw error;
       }
-      return true;
+      return data;
     },
     onSuccess: () => {
-      // Invalidar la consulta para actualizar la lista de mensajes
       queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
     }
   });
-  
-  // Mutation para marcar el mensaje como no leído
-  const { mutate: markAsUnread } = useMutation({
-    mutationFn: async (messageId: string) => {
-      const { error } = await supabase
-        .from('email_submissions')
-        .update({ status: 'unread' })
-        .eq('id', messageId);
-      
-      if (error) {
-        console.error('Error marking message as unread:', error);
-        throw error;
-      }
-      return true;
-    },
-    onSuccess: () => {
-      // Invalidar la consulta para actualizar la lista de mensajes
-      queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
-    }
-  });
-  
-  // Mutation para eliminar el mensaje
+
+  // Mutation para eliminar el mensaje usando la función RPC definida en Supabase
   const { mutate: deleteMessage } = useMutation({
     mutationFn: async (messageId: string) => {
-      const { error } = await supabase
-        .from('email_submissions')
-        .delete()
-        .eq('id', messageId);
-      
-      if (error) {
-        console.error('Error deleting message:', error);
-        throw error;
-      }
-      return true;
+      return await deleteEmailSubmission(messageId);
     },
     onSuccess: () => {
       // Invalidar la consulta para actualizar la lista de mensajes
@@ -227,11 +197,9 @@ export default function SubmissionsScreen() {
   const handleToggleReadStatus = () => {
     if (!selectedMessageId) return;
     
-    if (selectedMessageStatus === 'read') {
-      markAsUnread(selectedMessageId);
-    } else {
-      markAsRead(selectedMessageId);
-    }
+    // Si el mensaje está en "read", se cambia a "unread" y viceversa
+    const newStatus = selectedMessageStatus === 'read' ? 'unread' : 'read';
+    updateStatus({ messageId: selectedMessageId, newStatus });
     
     setModalVisible(false);
   };
