@@ -1,98 +1,98 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { View, TextInput, StyleSheet, Alert } from 'react-native';
 import { supabase } from '@/lib/supabase';
-import { useRouter } from 'expo-router';
+import { useTheme } from '@/contexts/ThemeContext';
+import { ThemedView, ThemedText, ThemedButton } from '@/components/ThemedView';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
+  const { colors } = useTheme();
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Por favor ingresa tu email y contraseña');
+      Alert.alert('Error', 'Por favor ingrese email y contraseña');
       return;
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setLoading(false);
-
-    if (error) {
-      Alert.alert('Error de inicio de sesión', error.message);
-    } else {
-      router.replace('/');
+      if (error) throw error;
+    } catch (error) {
+      Alert.alert('Error de inicio de sesión', (error as Error).message);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Iniciar Sesión</Text>
+    <ThemedView style={styles.container}>
+      <ThemedText style={styles.title}>Iniciar Sesión</ThemedText>
       
       <TextInput
-        style={styles.input}
+        style={[styles.input, { 
+          backgroundColor: colors.card,
+          color: colors.text,
+          borderColor: colors.border 
+        }]}
         placeholder="Email"
+        placeholderTextColor={colors.textSecondary}
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
-        keyboardType="email-address"
       />
       
       <TextInput
-        style={styles.input}
+        style={[styles.input, { 
+          backgroundColor: colors.card,
+          color: colors.text,
+          borderColor: colors.border 
+        }]}
         placeholder="Contraseña"
+        placeholderTextColor={colors.textSecondary}
         value={password}
         onChangeText={setPassword}
         secureTextEntry
       />
       
-      <TouchableOpacity 
+      <ThemedButton 
+        primary 
+        onPress={handleLogin} 
         style={styles.button}
-        onPress={handleLogin}
-        disabled={loading}
       >
-        <Text style={styles.buttonText}>
-          {loading ? 'Cargando...' : 'Iniciar Sesión'}
-        </Text>
-      </TouchableOpacity>
-    </View>
+        {loading ? 'Iniciando sesión...' : 'Iniciar Sesión'}
+      </ThemedButton>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    padding: 16,
     justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#fff',
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 20,
+    marginBottom: 24,
     textAlign: 'center',
   },
   input: {
-    backgroundColor: '#f5f5f5',
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 15,
-    fontSize: 16,
+    height: 50,
+    marginBottom: 16,
+    borderWidth: 1,
+    padding: 10,
+    borderRadius: 8,
   },
   button: {
-    backgroundColor: '#007AFF',
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
+    marginTop: 16,
   },
 });

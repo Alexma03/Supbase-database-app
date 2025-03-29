@@ -18,6 +18,7 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { MessageCircle, AlertCircle, Trash2, CheckCircle, XCircle } from 'lucide-react-native';
 import type { EmailSubmission } from '@/types/supabase';
 import { deleteEmailSubmission, updateEmailSubmissionStatus } from '@/lib/services';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function MessageDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -25,6 +26,7 @@ export default function MessageDetail() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [modalVisible, setModalVisible] = useState(false);
+  const { colors, theme } = useTheme();
   
   // Animation values
   const pressAnimation = useRef(new Animated.Value(0)).current;
@@ -53,17 +55,17 @@ export default function MessageDetail() {
   const handlePressIn = () => {
     Animated.timing(pressAnimation, {
       toValue: 1,
-      duration: 250, // Slower animation
-      easing: Easing.bezier(0.2, 0.8, 0.2, 1), // Smooth bezier curve
-      useNativeDriver: false, // We need to animate backgroundColor
+      duration: 250,
+      easing: Easing.bezier(0.2, 0.8, 0.2, 1),
+      useNativeDriver: false,
     }).start();
   };
   
   const handlePressOut = () => {
     Animated.timing(pressAnimation, {
       toValue: 0,
-      duration: 300, // Even slower release
-      easing: Easing.bezier(0.4, 0, 0.2, 1), // Smooth return
+      duration: 300,
+      easing: Easing.bezier(0.4, 0, 0.2, 1),
       useNativeDriver: false,
     }).start();
   };
@@ -74,12 +76,16 @@ export default function MessageDetail() {
       headerLeft: () => (
         <MessageCircle 
           size={24} 
-          color="#007AFF" 
+          color={colors.primary}
           style={{ marginLeft: 15 }}
         />
       ),
+      headerStyle: {
+        backgroundColor: colors.background,
+      },
+      headerTintColor: colors.text,
     });
-  }, [navigation]);
+  }, [navigation, colors]);
   
   // Mutation para marcar el mensaje como leído
   const { mutate: markAsRead } = useMutation({
@@ -87,9 +93,7 @@ export default function MessageDetail() {
       return await updateEmailSubmissionStatus(messageId, 'read');
     },
     onSuccess: () => {
-      // Invalidar la consulta para actualizar la lista de mensajes
       queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
-      // Actualizar el mensaje actual en la cache
       queryClient.setQueryData(['message', id], (oldData: any) => {
         if (oldData) {
           return { ...oldData, status: 'read' };
@@ -105,9 +109,7 @@ export default function MessageDetail() {
       return await updateEmailSubmissionStatus(messageId, 'unread');
     },
     onSuccess: () => {
-      // Invalidar la consulta para actualizar la lista de mensajes
       queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
-      // Actualizar el mensaje actual en la cache
       queryClient.setQueryData(['message', id], (oldData: any) => {
         if (oldData) {
           return { ...oldData, status: 'unread' };
@@ -123,9 +125,7 @@ export default function MessageDetail() {
       return await deleteEmailSubmission(messageId);
     },
     onSuccess: () => {
-      // Invalidar la consulta para actualizar la lista de mensajes
       queryClient.invalidateQueries({ queryKey: ['email-submissions'] });
-      // Regresar a la lista después de eliminar
       router.navigate('/');
     }
   });
@@ -135,7 +135,6 @@ export default function MessageDetail() {
     queryFn: async () => {
       try {
         console.log('Fetching message with ID:', id);
-        // Using string cast to avoid type errors with Supabase query
         const stringId = String(id);
         const { data, error } = await supabase
           .from('email_submissions')
@@ -204,22 +203,22 @@ export default function MessageDetail() {
   
   if (isLoading) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#007AFF" />
+      <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </View>
     );
   }
 
   if (isError || !message) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <AlertCircle size={80} color="#FF6B6B" style={styles.icon} />
-        <Text style={styles.errorTitle}>Mensaje no encontrado</Text>
-        <Text style={styles.errorText}>
+      <View style={[styles.container, styles.centered, { backgroundColor: colors.background }]}>
+        <AlertCircle size={80} color={colors.danger} style={styles.icon} />
+        <Text style={[styles.errorTitle, { color: colors.text }]}>Mensaje no encontrado</Text>
+        <Text style={[styles.errorText, { color: colors.textSecondary }]}>
           {(error as Error)?.message || 'No se pudo encontrar el mensaje solicitado'}
         </Text>
         <TouchableOpacity 
-          style={styles.errorButton}
+          style={[styles.errorButton, { backgroundColor: colors.primary }]}
           onPress={() => router.navigate('/')}
         >
           <Text style={styles.errorButtonText}>Volver a la lista</Text>
@@ -228,8 +227,6 @@ export default function MessageDetail() {
     );
   }
 
-  // Since we've already type-asserted in the query function, 
-  // we can safely use EmailSubmission properties
   const formattedDate = message.created_at 
     ? new Date(message.created_at).toLocaleDateString() 
     : '';
@@ -242,11 +239,11 @@ export default function MessageDetail() {
   
   const backgroundColor = pressAnimation.interpolate({
     inputRange: [0, 1],
-    outputRange: ['#ffffff', '#f9f9f9'],
+    outputRange: [colors.card, theme === 'dark' ? '#1A1A1A' : '#f0f0f0'],
   });
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Animated.View 
         style={[
           styles.contentWrapper,
@@ -265,25 +262,26 @@ export default function MessageDetail() {
           delayLongPress={300}
           style={({ pressed }) => [
             styles.messageContent,
-            { backgroundColor: pressed ? '#f9f9f9' : 'white' }
           ]}
         >
           <Animated.View style={{
             transform: [{ scale }],
             backgroundColor,
             flex: 1,
+            padding: 10,
+            borderRadius: 8,
           }}>
-            <Text style={styles.subject}>{message.subject}</Text>
-            <Text style={styles.email}>{message.email}</Text>
-            <Text style={styles.date}>{formattedDate}</Text>
-            <Text style={styles.message}>{message.message}</Text>
+            <Text style={[styles.subject, { color: colors.text }]}>{message.subject}</Text>
+            <Text style={[styles.email, { color: colors.textSecondary }]}>{message.email}</Text>
+            <Text style={[styles.date, { color: colors.textSecondary }]}>{formattedDate}</Text>
+            <Text style={[styles.message, { color: colors.text }]}>{message.message}</Text>
           </Animated.View>
         </Pressable>
       </Animated.View>
       
       <TouchableOpacity 
-        style={styles.button}
-        activeOpacity={0.85} // Even more subtle opacity effect
+        style={[styles.button, { backgroundColor: colors.primary }]}
+        activeOpacity={0.85}
         onPress={() => {
           Linking.openURL(`mailto:${message.email}?subject=Respuesta: ${message.subject}`);
         }}
@@ -291,7 +289,6 @@ export default function MessageDetail() {
         <Text style={styles.buttonText}>Contactar por email</Text>
       </TouchableOpacity>
       
-      {/* Modal de menú contextual */}
       <Modal
         animationType="fade"
         transparent={true}
@@ -302,30 +299,30 @@ export default function MessageDetail() {
           style={styles.modalOverlay}
           onPress={() => setModalVisible(false)}
         >
-          <View style={styles.modalContent}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
             <TouchableOpacity 
               style={styles.modalOption}
               onPress={handleToggleReadStatus}
             >
               {message.status === 'read' ? (
                 <>
-                  <XCircle size={22} color="#007AFF" style={styles.modalIcon} />
-                  <Text style={styles.modalOptionText}>Marcar como no leído</Text>
+                  <XCircle size={22} color={colors.primary} style={styles.modalIcon} />
+                  <Text style={[styles.modalOptionText, { color: colors.text }]}>Marcar como no leído</Text>
                 </>
               ) : (
                 <>
-                  <CheckCircle size={22} color="#007AFF" style={styles.modalIcon} />
-                  <Text style={styles.modalOptionText}>Marcar como leído</Text>
+                  <CheckCircle size={22} color={colors.primary} style={styles.modalIcon} />
+                  <Text style={[styles.modalOptionText, { color: colors.text }]}>Marcar como leído</Text>
                 </>
               )}
             </TouchableOpacity>
             
             <TouchableOpacity 
-              style={[styles.modalOption, styles.deleteOption]}
+              style={[styles.modalOption, styles.deleteOption, { borderTopColor: colors.border }]}
               onPress={handleDelete}
             >
-              <Trash2 size={22} color="#FF3B30" style={styles.modalIcon} />
-              <Text style={styles.deleteText}>Eliminar mensaje</Text>
+              <Trash2 size={22} color={colors.danger} style={styles.modalIcon} />
+              <Text style={[styles.deleteText, { color: colors.danger }]}>Eliminar mensaje</Text>
             </TouchableOpacity>
           </View>
         </Pressable>
@@ -338,7 +335,6 @@ const styles = StyleSheet.create({
   container: { 
     padding: 20,
     paddingBottom: 80,
-    backgroundColor: 'white',
     flex: 1 
   },
   contentWrapper: {
@@ -355,12 +351,10 @@ const styles = StyleSheet.create({
   },
   email: { 
     fontSize: 18,
-    color: '#666',
     marginBottom: 8
   },
   date: { 
     fontSize: 16,
-    color: '#999',
     marginBottom: 30
   },
   message: { 
@@ -371,7 +365,6 @@ const styles = StyleSheet.create({
     marginTop: 25,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#007AFF',
     width: '100%',
     elevation: 2,
     shadowColor: '#000',
@@ -392,19 +385,16 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#333',
     marginTop: 20,
     marginBottom: 10,
   },
   errorText: {
-    color: '#666',
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 30,
     paddingHorizontal: 20,
   },
   errorButton: {
-    backgroundColor: '#007AFF',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,
@@ -425,7 +415,6 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   modalContent: {
-    backgroundColor: 'white',
     borderRadius: 14,
     padding: 8,
     width: '80%',

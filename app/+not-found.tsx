@@ -1,16 +1,26 @@
 import { Link, Stack } from 'expo-router';
 import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import { AlertTriangle } from 'lucide-react-native';
+import { useTheme } from '@/contexts/ThemeContext';
 
 export default function NotFoundScreen() {
+  const { colors } = useTheme();
+  
   return (
     <>
-      <Stack.Screen options={{ title: 'Página no encontrada', headerShown: true }} />
-      <View style={styles.container}>
-        <AlertTriangle size={80} color="#FF6B6B" style={styles.icon} />
-        <Text style={styles.title}>¡Oops!</Text>
-        <Text style={styles.text}>La página que buscas no existe.</Text>
-        <TouchableOpacity style={styles.button}>
+      <Stack.Screen options={{ 
+        title: 'Página no encontrada', 
+        headerShown: true,
+        headerStyle: { backgroundColor: colors.background },
+        headerTintColor: colors.text,
+      }} />
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <AlertTriangle size={80} color={colors.danger} style={styles.icon} />
+        <Text style={[styles.title, { color: colors.text }]}>¡Oops!</Text>
+        <Text style={[styles.text, { color: colors.textSecondary }]}>
+          La página que buscas no existe.
+        </Text>
+        <TouchableOpacity style={[styles.button, { backgroundColor: colors.primary }]}>
           <Link href="/" style={styles.link}>
             <Text style={styles.buttonText}>Volver al inicio</Text>
           </Link>
@@ -26,7 +36,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
-    backgroundColor: '#FFFFFF',
   },
   icon: {
     marginBottom: 20,
@@ -34,17 +43,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333333',
     marginBottom: 10,
   },
   text: {
     fontSize: 18,
-    color: '#666666',
     textAlign: 'center',
     marginBottom: 30,
   },
   button: {
-    backgroundColor: '#007AFF',
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 8,

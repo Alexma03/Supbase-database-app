@@ -1,18 +1,17 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useColorScheme } from 'react-native';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useSupabaseAuth } from '@/hooks/useSupabaseAuth';
 import { useEffect } from 'react';
 import { useRouter, useSegments } from 'expo-router';
+import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 
 const queryClient = new QueryClient();
 
 // Protección de rutas
 function AuthProvider({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useSupabaseAuth();
-  // Cast de segments a string[] para evitar el error de tipo
   const segments = useSegments() as unknown as string[];
   const router = useRouter();
 
@@ -34,27 +33,39 @@ function AuthProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-export default function RootLayout() {
-  // Obtén el esquema de color actual para ajustar la barra de estado
-  const colorScheme = useColorScheme();
-  const statusBarStyle = colorScheme === 'dark' ? 'light' : 'dark';
-  const statusBarBackground = colorScheme === 'dark' ? '#000000' : '#FFFFFF';
+// Componente con acceso al tema
+function ThemedApp() {
+  const { actualTheme, colors } = useTheme();
+  const statusBarStyle = actualTheme === 'dark' ? 'light' : 'dark';
 
   return (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
         <AuthProvider>
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background }
+            }}
+          >
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="/auth/login" options={{ headerShown: false }} />
+            <Stack.Screen name="auth/login" options={{ headerShown: false }} />
           </Stack>
           <StatusBar 
             style={statusBarStyle} 
-            backgroundColor={statusBarBackground} 
+            backgroundColor={colors.background}
             translucent={false}
           />
         </AuthProvider>
       </ErrorBoundary>
     </QueryClientProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <ThemedApp />
+    </ThemeProvider>
   );
 }
